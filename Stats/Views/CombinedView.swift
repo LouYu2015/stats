@@ -58,14 +58,12 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         NotificationCenter.default.addObserver(self, selector: #selector(listenForOneView), name: .toggleOneView, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenForModuleRearrrange), name: .moduleRearrange, object: nil)
         NotificationCenter.default.addObserver(self, selector: #selector(listenCombinedModulesPopup), name: .combinedModulesPopup, object: nil)
-        NotificationCenter.default.addObserver(self, selector: #selector(listenForModule), name: .toggleModule, object: nil)
     }
     
     deinit {
         NotificationCenter.default.removeObserver(self, name: .toggleOneView, object: nil)
         NotificationCenter.default.removeObserver(self, name: .moduleRearrange, object: nil)
         NotificationCenter.default.removeObserver(self, name: .combinedModulesPopup, object: nil)
-        NotificationCenter.default.removeObserver(self, name: .toggleModule, object: nil)
     }
     
     public func enable() {
@@ -77,27 +75,10 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
         self.menuBarItem?.button?.image = NSImage()
         self.menuBarItem?.button?.toolTip = localizedString("Combined modules")
         
-        if !self.combinedModulesPopup {
-            self.activeModules.forEach { (m: Module) in
-                m.menuBar.widgets.forEach { w in
-                    w.item.onClick = {
-                        if let window = w.item.window {
-                            NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: [
-                                "module": m.name,
-                                "widget": w.type,
-                                "origin": window.frame.origin,
-                                "center": window.frame.width/2
-                            ])
-                        }
-                    }
-                }
-            }
-        } else {
-            self.menuBarItem?.button?.target = self
-            self.menuBarItem?.button?.action = #selector(self.togglePopup)
-            self.menuBarItem?.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
-        }
-        
+        self.menuBarItem?.button?.target = self
+        self.menuBarItem?.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
+        self.menuBarItem?.button?.action = self.combinedModulesPopup ? #selector(self.togglePopup) : #selector(self.handleModuleClick)
+
         DispatchQueue.main.async(execute: {
             self.recalculate()
         })
@@ -167,7 +148,42 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
             popup.setIsVisible(false)
         }
     }
-    
+
+    // In combined mode without the combined popup, all modules live under a single
+    // NSStatusItem button. Resolve which module was clicked from the cursor's x
+    // position and open that module's popup. This replaces the previous per-widget
+    // onClick routing, which macOS no longer delivers to the stacked widget subviews
+    // of the combined status item (every click fell through to the last module).
+    @objc private func handleModuleClick(_ sender: NSButton) {
+        guard let window = sender.window else { return }
+        let point = self.view.convert(window.convertPoint(fromScreen: NSEvent.mouseLocation), from: nil)
+        guard let module = self.moduleAt(x: point.x) else { return }
+
+        var userInfo: [String: Any] = [
+            "module": module.name,
+            "origin": window.frame.origin,
+            "center": window.frame.width/2
+        ]
+        if let widget = module.menuBar.widgets.first?.type {
+            userInfo["widget"] = widget
+        }
+        NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: userInfo)
+    }
+
+    private func moduleAt(x: CGFloat) -> Module? {
+        var result: Module? = nil
+        for m in self.activeModules {
+            let frame = m.menuBar.view.frame
+            if x >= frame.minX && x < frame.maxX {
+                return m
+            }
+            if x >= frame.minX {
+                result = m
+            }
+        }
+        return result
+    }
+
     @objc private func listenForOneView(_ notification: Notification) {
         guard notification.userInfo?["module"] == nil else { return }
         
@@ -183,53 +199,9 @@ internal class CombinedView: NSObject, NSGestureRecognizerDelegate {
     }
     
     @objc private func listenCombinedModulesPopup() {
-        if !self.combinedModulesPopup {
-            self.activeModules.forEach { (m: Module) in
-                m.menuBar.widgets.forEach { w in
-                    w.item.onClick = {
-                        if let window = w.item.window {
-                            NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: [
-                                "module": m.name,
-                                "widget": w.type,
-                                "origin": window.frame.origin,
-                                "center": window.frame.width/2
-                            ])
-                        }
-                    }
-                }
-            }
-            self.menuBarItem?.button?.action = nil
-        } else {
-            self.activeModules.forEach { (m: Module) in
-                m.menuBar.widgets.forEach { w in
-                    w.item.onClick = nil
-                }
-            }
-            
-            self.menuBarItem?.button?.target = self
-            self.menuBarItem?.button?.action = #selector(self.togglePopup)
-            self.menuBarItem?.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
-        }
-    }
-    
-    @objc private func listenForModule(_ notification: Notification) {
-        guard let name = notification.userInfo?["module"] as? String,
-              let state = notification.userInfo?["state"] as? Bool,
-              state,
-              let module = self.activeModules.first(where: { $0.name == name }) else { return }
-        
-        module.menuBar.widgets.forEach { w in
-            w.item.onClick = {
-                if let window = w.item.window {
-                    NotificationCenter.default.post(name: .togglePopup, object: nil, userInfo: [
-                        "module": module.name,
-                        "widget": w.type,
-                        "origin": window.frame.origin,
-                        "center": window.frame.width/2
-                    ])
-                }
-            }
-        }
+        self.menuBarItem?.button?.target = self
+        self.menuBarItem?.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
+        self.menuBarItem?.button?.action = self.combinedModulesPopup ? #selector(self.togglePopup) : #selector(self.handleModuleClick)
     }
 }
 
