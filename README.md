@@ -7,6 +7,45 @@
 
 macOS system monitor in your menu bar
 
+> ## ⚠️ Fork notice — this fork carries extra fixes
+>
+> This is a fork of [exelban/stats](https://github.com/exelban/stats). Its `master`
+> equals upstream `master` **plus** local fixes that are not (yet) in upstream:
+>
+> - **Combined-modules click routing on macOS 26+** — in combined mode without the
+>   combined popup, clicking any module's icon used to always open the last module's
+>   menu. macOS no longer routes clicks to the stacked widget subviews of a single
+>   status item, so the clicked module is now resolved from the cursor's x position.
+>   (See upstream issue [#3337](https://github.com/exelban/stats/issues/3337).)
+>
+> There are no notarized release builds of this fork — build it yourself with the
+> guide below. To follow new upstream releases, run `./rebuild-fix.sh`, which rebases
+> these extra commits onto the latest upstream, rebuilds, and reinstalls.
+
+## Building this fork
+
+Requirements: macOS with a matching Xcode (e.g. Xcode 27.x on macOS 27) and its
+command-line tools.
+
+```bash
+git clone https://github.com/LouYu2015/stats.git
+cd stats
+
+# One-shot: rebase onto latest upstream, build, install to /Applications, relaunch.
+# Asks once before force-pushing the fork; use -y to skip prompts, --no-push to
+# skip touching the fork, --help for all options.
+./rebuild-fix.sh
+```
+
+To build manually without the helper script:
+
+```bash
+xcodebuild -project Stats.xcodeproj -scheme Stats -configuration Debug \
+  -derivedDataPath /tmp/stats_build \
+  CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+# product: /tmp/stats_build/Build/Products/Debug/Stats.app
+```
+
 ## Installation
 ### Manual
 You can download the latest version [here](https://github.com/exelban/stats/releases/latest/download/Stats.dmg).
