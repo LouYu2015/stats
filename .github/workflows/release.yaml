@@ -32,7 +32,9 @@ concurrency:
 
 jobs:
   rebase-and-release:
-    runs-on: macos-15
+    # Needs a recent SDK: upstream uses CWPHYMode.mode11be (Wi-Fi 7), absent from the
+    # macos-15 image's Xcode 16 SDK. macos-26 ships Xcode 26 with the matching SDK.
+    runs-on: macos-26
     env:
       UPSTREAM: exelban/stats
       GH_TOKEN: ${{ github.token }}
@@ -88,6 +90,7 @@ jobs:
       - name: Build (Release, ad-hoc signed)
         if: steps.plan.outputs.skip != 'true'
         run: |
+          xcodebuild -version
           xcodebuild -project Stats.xcodeproj -scheme Stats -configuration Release \
             -derivedDataPath build \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
