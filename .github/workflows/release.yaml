@@ -1,0 +1,131 @@
+name: rebase-and-release
+
+# Tracks upstream exelban/stats releases. On a schedule (and on demand) it rebases this
+# fork's extra fix commits onto the latest upstream release tag, builds an unsigned
+# (ad-hoc) DMG, and publishes it as a "<upstream-tag>-fix" release on this fork.
+#
+# It does NOT push the fork's master branch — the rebase happens only inside the runner to
+# produce the build, so no token with `workflow` scope is required. Keep maintaining master
+# locally with ./rebuild-fix.sh.
+
+on:
+  schedule:
+    - cron: '0 6 * * *'        # daily 06:00 UTC; GitHub disables cron on a repo after 60d idle
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'Upstream tag/branch to rebase onto (blank = latest upstream release)'
+        required: false
+        default: ''
+      force:
+        description: 'Re-release even if the -fix release already exists'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write             # create releases on this fork
+  issues: write               # open an issue if the rebase conflicts
+
+concurrency:
+  group: rebase-and-release
+  cancel-in-progress: false
+
+jobs:
+  rebase-and-release:
+    runs-on: macos-15
+    env:
+      UPSTREAM: exelban/stats
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0        # full history so the fix commits can be rebased
+
+      - name: Configure git + upstream remote
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream "https://github.com/${UPSTREAM}.git"
+          git fetch upstream master --tags --force
+
+      - name: Plan release
+        id: plan
+        run: |
+          REF='${{ github.event.inputs.upstream_ref }}'
+          if [ -z "$REF" ]; then
+            REF="$(gh release view --repo "$UPSTREAM" --json tagName -q .tagName)"
+          fi
+          TAG="${REF}-fix"
+          echo "ref=$REF"  >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"  >> "$GITHUB_OUTPUT"
+          echo "Upstream ref: $REF -> release tag: $TAG"
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            if [ '${{ github.event.inputs.force }}' = 'true' ]; then
+              echo "Force re-release: deleting existing $TAG"
+              gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+              echo "skip=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "Release $TAG already exists; nothing to do."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
+            fi
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rebase fork fixes onto upstream ref
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          # Replay the fork-only commits (upstream/master..master) onto the chosen ref.
+          if ! git rebase --onto "${{ steps.plan.outputs.ref }}" upstream/master; then
+            git rebase --abort || true
+            echo "rebase_conflict=1" >> "$GITHUB_ENV"
+            echo "::error::Rebase onto ${{ steps.plan.outputs.ref }} hit conflicts."
+            exit 1
+          fi
+
+      - name: Build (Release, ad-hoc signed)
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          xcodebuild -project Stats.xcodeproj -scheme Stats -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
+          APP="build/Build/Products/Release/Stats.app"
+          # Ad-hoc sign so it launches on Apple Silicon after the user clears quarantine.
+          codesign --force --deep --sign - "$APP"
+          echo "APP=$APP" >> "$GITHUB_ENV"
+
+      - name: Build DMG
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          git clone --depth 1 https://github.com/create-dmg/create-dmg
+          ./create-dmg/create-dmg \
+            --volname Stats \
+            --background "Stats/Supporting Files/background.png" \
+            --window-pos 200 120 --window-size 500 320 --icon-size 80 \
+            --icon "Stats.app" 125 175 --hide-extension "Stats.app" \
+            --app-drop-link 375 175 --no-internet-enable \
+            Stats.dmg "$APP" || test -f Stats.dmg
+
+      - name: Publish release
+        if: steps.plan.outputs.skip != 'true'
+        run: |
+          {
+            echo "Unofficial build: **upstream ${{ steps.plan.outputs.ref }}** + the"
+            echo "combined-modules click-routing fix (upstream issue #3337)."
+            echo
+            cat .github/RELEASE_NOTES.md
+          } > notes.md
+          gh release create "${{ steps.plan.outputs.tag }}" Stats.dmg \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Stats ${{ steps.plan.outputs.ref }} + combined-click fix (unofficial)" \
+            --notes-file notes.md
+
+      - name: Report rebase conflict
+        if: failure() && env.rebase_conflict == '1'
+        run: |
+          gh issue create --repo "$GITHUB_REPOSITORY" \
+            --title "Auto-rebase onto ${{ steps.plan.outputs.ref }} failed (conflicts)" \
+            --body "The scheduled rebase of the fork's fixes onto upstream \`${{ steps.plan.outputs.ref }}\` hit conflicts, so no DMG was published. Resolve locally with \`./rebuild-fix.sh\`, push master, then re-run this workflow." \
+            || true
