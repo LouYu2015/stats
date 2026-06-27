@@ -39,7 +39,7 @@ jobs:
       UPSTREAM: exelban/stats
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: master
           fetch-depth: 0        # full history so the fix commits can be rebased
