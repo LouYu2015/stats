@@ -18,9 +18,44 @@ macOS system monitor in your menu bar
 >   status item, so the clicked module is now resolved from the cursor's x position.
 >   (See upstream issue [#3337](https://github.com/exelban/stats/issues/3337).)
 >
-> There are no notarized release builds of this fork — build it yourself with the
-> guide below. To follow new upstream releases, run `./rebuild-fix.sh`, which rebases
-> these extra commits onto the latest upstream, rebuilds, and reinstalls.
+> Prebuilt (unsigned) `Stats.dmg` images are published on this fork's
+> [Releases](https://github.com/LouYu2015/stats/releases) page and are rebuilt
+> automatically whenever upstream cuts a new release (see *Automated releases* below).
+> They are **not signed or notarized** — see *Opening the app* for how to get past
+> Gatekeeper. You can also build it yourself with the guide further down.
+
+## Download a prebuilt DMG
+
+Grab the latest from the fork's releases:
+
+> **https://github.com/LouYu2015/stats/releases/latest/download/Stats.dmg**
+
+Each release is `upstream <version> + the combined-click fix`, tagged `vX.Y.Z-fix`.
+
+### Opening the app (unsigned — Gatekeeper)
+
+Because this fork has no paid Apple Developer ID, the build is only **ad-hoc signed**, so
+on first launch macOS says *"Stats can't be opened because Apple cannot check it for
+malicious software."* Clear the download quarantine once and it opens normally:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Stats.app
+```
+
+Or, without Terminal: try to open it, then go to **System Settings → Privacy & Security**
+and click **Open Anyway**.
+
+### ⚠️ Auto-update will overwrite the fix
+
+Stats' built-in updater points at the **upstream** project (`api.mac-stats.com` →
+`exelban/stats`). If you let it update, it installs the **official** build, which does
+**not** contain this fix — the combined-click bug comes back. To stay on the fixed build:
+
+- Keep **Settings → Update interval** set to **Silent** (the default) so it never
+  auto-installs, **and**
+- after any update, re-download the DMG above (or re-run `./rebuild-fix.sh`).
+
+The in-app updater will never offer this fork's `-fix` releases — only upstream's.
 
 ## Building this fork
 
@@ -45,6 +80,24 @@ xcodebuild -project Stats.xcodeproj -scheme Stats -configuration Debug \
   CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO
 # product: /tmp/stats_build/Build/Products/Debug/Stats.app
 ```
+
+## Automated releases
+
+`.github/workflows/release.yaml` keeps the prebuilt DMGs in sync with upstream:
+
+- Runs daily (and on demand via **Actions → rebase-and-release → Run workflow**).
+- Reads upstream's latest release tag, rebases this fork's fix commits onto it **inside the
+  runner**, builds an ad-hoc-signed `Stats.dmg`, and publishes it as a `<tag>-fix` release.
+- It does **not** push `master` (so no `workflow`-scoped token is needed) — keep updating
+  `master` locally with `./rebuild-fix.sh`. If the rebase ever conflicts, it opens an issue
+  instead of publishing a broken build.
+- Manual run inputs: `upstream_ref` (rebase onto a specific tag/branch) and `force`
+  (re-release a tag that already exists).
+
+Upstream's own CI workflows (`build`, `i18n check`, `Linter`) are disabled on this fork.
+
+> Note: GitHub auto-disables scheduled workflows after 60 days without repo activity —
+> push or run something occasionally, or trigger it manually, to keep the schedule alive.
 
 ## Installation
 ### Manual
