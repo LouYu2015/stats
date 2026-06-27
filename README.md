@@ -85,7 +85,7 @@ xcodebuild -project Stats.xcodeproj -scheme Stats -configuration Debug \
 
 `.github/workflows/release.yaml` keeps the prebuilt DMGs in sync with upstream:
 
-- Runs daily (and on demand via **Actions → rebase-and-release → Run workflow**).
+- Runs weekly (and on demand via **Actions → rebase-and-release → Run workflow**).
 - Reads upstream's latest release tag, rebases this fork's fix commits onto it **inside the
   runner**, builds an ad-hoc-signed `Stats.dmg`, and publishes it as a `<tag>-fix` release.
 - It does **not** push `master` (so no `workflow`-scoped token is needed) — keep updating
